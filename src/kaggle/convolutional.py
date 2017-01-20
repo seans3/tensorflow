@@ -1,3 +1,19 @@
+# ==============================================================================
+#
+# File:   convolutional.py
+# Author: Sean Sullivan (sean@seansullivan.io)
+# Date:   Jan. 17, 2017
+# Description:
+#   Convolutional Neural Network using tensorflow to classify images.
+#   Used to classify MNIST digit images and Kaggle leaf images.
+#
+#   Kaggle leaf competition: https://www.kaggle.com/c/leaf-classification
+#
+#   To run leaf classification use: --leaf_images flag
+#
+# NOTE: Modified from the same named file from Google. Copyright for that
+# file follows:
+#
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -39,17 +55,19 @@ import pandas as pd
 import PIL.Image
 import PIL.ImageOps
 
-
+# Constants for kaggle leaf classification (not MNIST)
 KAGGLE_VALIDATION_SIZE = 80  # Size of the validation set.
-KAGGLE_BATCH_SIZE = 20
+KAGGLE_BATCH_SIZE      = 20
 KAGGLE_EVAL_BATCH_SIZE = 20
-KAGGLE_IMAGE_SIZE = 64
-KAGGLE_LABELS = 10
-DATA_DIR     = 'data/kaggle'
-IMAGE_DIR    = os.path.join(DATA_DIR, 'images')
-TRAIN_CSV_FILENAME  = 'train.csv'
-NUM_LEAVES_TO_TRAIN = 10    # If less than full 99
+KAGGLE_IMAGE_SIZE      = 64
+KAGGLE_LABELS          = 10
+DATA_DIR               = 'data/kaggle'
+IMAGE_DIR              = os.path.join(DATA_DIR, 'images')
+TRAIN_CSV_FILENAME     = 'train.csv'
+NUM_LEAVES_TO_TRAIN    = 10    # If less than full 99 leaf species
 
+
+# Constants for MNIST classification
 SOURCE_URL = 'http://yann.lecun.com/exdb/mnist/'
 WORK_DIRECTORY = 'data'
 IMAGE_SIZE = 28
@@ -64,8 +82,6 @@ EVAL_BATCH_SIZE = 64
 EVAL_FREQUENCY = 100  # Number of steps between evaluations.
 
 
-
-
 FLAGS = None
 
 
@@ -73,131 +89,93 @@ FLAGS = None
 #    Classes
 ####################################################
 
-class Image:
-    """Encasulates an image, it's meta-data and it's pixel data.
-    """
 
-    dir = ''
-    filename = ''
-    num_rows = -1
-    num_cols = -1
-    is_opened = False
-    img = None
+class Image:
+    """Encasulates an image, it's meta-data and it's pixel data."""
+
+    dir = ''        # directory for image file
+    filename = ''   # filename for image
+    num_rows = -1   # number of rows for image resize
+    num_cols = -1   # num of columns for image resize
+    is_opened = False  # is image file opened
+    img = None         # reference to opened image file
 
     def __init__(self, dir, filename):
-        self.dir = dir
-        self.filename = filename
-    
+      self.dir = dir
+      self.filename = filename
+      
     def __init__(self, dir, filename, num_rows, num_cols):
-        self.dir = dir
-        self.filename = filename
-        self.num_rows = num_rows
-        self.num_cols = num_cols
-        
+      self.dir = dir
+      self.filename = filename
+      self.num_rows = num_rows
+      self.num_cols = num_cols
+      
     def getFilepath(self):
-        return os.path.join(self.dir, self.filename)
+      """Returns full filepath to image file."""
+      return os.path.join(self.dir, self.filename)
 
     def open(self):
-        if not self.is_opened:
-            self.img = PIL.Image.open(self.getFilepath())
-            self.img = self.img.resize((self.num_rows, self.num_cols))
-            is_opened = True
-        return self.img
+      """Stores a reference to the opened image file if not already open. """
+      if not self.is_opened:
+        self.img = PIL.Image.open(self.getFilepath())
+        self.img = self.img.resize((self.num_rows, self.num_cols))
+        is_opened = True
+      return self.img
 
     def close(self):
-        if self.is_opened:
-            img.close()
-            self.is_opened = False
-            
+      """Saves file handles by closing an open image file."""
+      if self.is_opened:
+        img.close()
+        self.is_opened = False
+          
     def getData(self):
-        """Returns numpy array filled with resized and re-scaled image pixel data.
-        """
-
-
-        self.open()
-        a = numpy.array(self.img).astype(numpy.float32)
-        a = (a - (PIXEL_DEPTH / 2.0)) / PIXEL_DEPTH
-        return a
+      """Returns numpy array filled with resized and re-scaled image pixel data."""
+      self.open()
+      a = numpy.array(self.img).astype(numpy.float32)
+      a = (a - (PIXEL_DEPTH / 2.0)) / PIXEL_DEPTH  # pixel data [0, 255] -> [-0.5, 0.5]
+      new_shape = a.shape + (1,)
+      a = a.reshape(new_shape)  # reshape from [x, x] -> [x, x, 1] (for channels)
+      return a
 
     def getRotatedData(self, degrees):
-        """Returns numpy array filled with resized and re-scaled image pixel data.
-        """
-
-        self.open()
-        rotated_img = self.img.rotate(degrees)
-        a = numpy.array(rotated_img).astype(numpy.float32)
-        a = (a - (PIXEL_DEPTH / 2.0)) / PIXEL_DEPTH
-        return a
+      """Returns numpy array filled with resized, rotated, re-scaled image pixel data."""
+      self.open()
+      rotated_img = self.img.rotate(degrees)       # rotation should be 90, 180, or 270
+      a = numpy.array(rotated_img).astype(numpy.float32)
+      a = (a - (PIXEL_DEPTH / 2.0)) / PIXEL_DEPTH  # pixel data [0, 255] -> [-0.5, 0.5]
+      new_shape = a.shape + (1,)
+      a = a.reshape(new_shape)  # reshape from [x, x] -> [x, x, 1] (for channels)
+      return a
 
     def invertImage(self):
-        """Returns numpy array filled with resized and re-scaled image pixel data.
-        """
-
-        self.open()
-        self.img = PIL.ImageOps.invert(self.img)
+      """Inverts colors of opened image file (black -> white, white -> black)."""
+      self.open()
+      self.img = PIL.ImageOps.invert(self.img)
     
 
 class LeafImage(Image):
-    """Encapsulates leaf image from Kaggle competition.
-    """
+    """Encapsulates leaf image from Kaggle competition. Inherits from Image."""
     
-    species = None
-    label = None
+    species = None  # String. Example: Acer_Saccharinum or Quercus_Pontica
+    label = None    # Integer. Example 4
 
     def __init__(self, dir, filename):
-        Image.__init__(self, dir, filename)
-    
+      Image.__init__(self, dir, filename)
+
     def __init__(self, dir, filename, num_rows, num_cols):
-        Image.__init__(self, dir, filename, num_rows, num_cols)
+      Image.__init__(self, dir, filename, num_rows, num_cols)
 
     def setSpecies(self, species):
-        self.species = species
+      self.species = species
 
     def getSpecies(self):
-        return self.species
+      return self.species
 
     def setLabel(self, label):
-        self.label = label
+      self.label = label
 
     def getLabel(self):
-        return self.label
-
-
-class TrainingData:
-
-    arr = None
-    tensors_and_labels = []
-    current_offset = 0
-
-    def getNumItems(self):
-        return len(tensors_and_labels)
-    
-    def addItem(self, item):
-        tensors_and_lables.append(item)
-
-    def createDataArray(self):
-        pass
-        
-    def getAsArray(self):
-        if arr is None:
-            pass
-        
-    def nextBatch(self, batch_size):
-        return None
-
-    def createValidationSet(self, percent):
-        return None
-
-
-
-class ConvolutionalNeuralNetwork():
-    """
-    """
-
-    layers = None
-    
-    def __init__(self, image_size, ):
-        layers = []
+      return self.label
 
 
 ####################################################
@@ -214,35 +192,37 @@ def print_line(string):
     print(s)
 
 
-
+# TODO(sean): This is too long. Break it up. Create TrainingData class with
+#   simple interface to get next batch of training data. Example:
+#
+#   batch_x, batch_y = training_data.next_batch(batch_size=20)
 def extract_kaggle_data(train_data_dir):
-    """Generate the kaggle leaf data array and the label array."""
-
+    """Generate the kaggle leaf training, label, validation_data and label arrays."""
     # Create the dictionary of label (species) -> list of LeafImages
-    train_filepath = os.path.join(DATA_DIR, TRAIN_CSV_FILENAME)
+    train_filepath = os.path.join(train_data_dir, TRAIN_CSV_FILENAME)
     print_line('Reading: ' + train_filepath)
-    train = pd.read_csv(train_filepath)
-    ids = train["id"]
-    print_line('Num ids: %d' % len(ids))
-    species = train["species"]
+    training_csv = pd.read_csv(train_filepath)
+    ids = training_csv["id"]
+    print_line('Num Images: %d' % len(ids))
+    species = training_csv["species"]
     # Assert ids and species are same size
-    data_dict = {}
+    species_image_map = {}
     for i in range(len(ids)):
         id = ids[i]
         leaf_species = species[i]
         leaf_filename = "%d.jpg" % id
         leaf = LeafImage(IMAGE_DIR, leaf_filename, KAGGLE_IMAGE_SIZE, KAGGLE_IMAGE_SIZE)
         leaf.setSpecies(leaf_species)
-        if leaf_species not in data_dict:
-            data_dict[leaf_species] = []
-        data_dict.get(leaf_species).append(leaf)
+        if leaf_species not in species_image_map:
+            species_image_map[leaf_species] = []
+        species_image_map.get(leaf_species).append(leaf)
 
-    # choose a subset of the leaves to start
-    species = data_dict.keys()
+    # choose a subset of the leaves to start (not entire 99 leaf species)
+    species = species_image_map.keys()
     random.shuffle(species)
     species = species[:NUM_LEAVES_TO_TRAIN]
 
-    # Create the labels for each leaf species
+    # Create the integer labels for each leaf species of the subset
     label_map = {}
     current_label = 0
     for leaf in species:
@@ -250,50 +230,59 @@ def extract_kaggle_data(train_data_dir):
         current_label += 1
 
     # Create a list of tuples of (label, pixel data array)
+    validation_items = []
+    training_items = []
+    for leaf_species in species:
+      leaf_images = species_image_map.get(leaf_species)
+      # 2 out of 10 leaf images (20%) are used to validate
+      validation_images = leaf_images[:2]
+      leaf_images = leaf_images[2:]
+      # assert 10 LeafImages
+      label = label_map[leaf_species]
+      for leaf_image in leaf_images:
+        training_items.append((label, leaf_image.getData()))
+        training_items.append((label, leaf_image.getRotatedData(90)))
+        training_items.append((label, leaf_image.getRotatedData(180)))
+        training_items.append((label, leaf_image.getRotatedData(270)))
+        leaf_image.close()
+      for validation_image in validation_images:
+        validation_items.append((label, validation_image.getData()))
+        validation_items.append((label, validation_image.getRotatedData(90)))
+        validation_items.append((label, validation_image.getRotatedData(180)))
+        validation_items.append((label, validation_image.getRotatedData(270)))
+        validation_image.close()
 
-        
-    # Create numpy array of training data and labels
-    train_data = None
-    train_labels = numpy.zeros(shape=(400,), dtype=numpy.int64)
-    num_leaves = 0
-    keys = data_dict.keys()
+    random.shuffle(training_items)
+    random.shuffle(validation_items)
+
+    train_size = len(training_items)
+    validation_size = len(validation_items)
+    print("Num Training Data Points: %d" % train_size)
+    print("Num Validation Data Points: %d" % validation_size)
     
-    current_label = 0
-    current_label_index = 0
-    for key in keys:
-        print_line('Training: ' + key)
-        num_leaves += 1
-        if num_leaves > NUM_LEAVES_TO_TRAIN:
-            break
-        for leaf in data_dict[key]:
-            data = leaf.getData()
-            if train_data is None:
-                train_data = data
-            else:
-                train_data = numpy.dstack((train_data, data))
-            train_labels[current_label_index] = current_label
-            current_label_index += 1
-            rot1 = leaf.getRotatedData(90)
-            train_data = numpy.dstack((train_data, rot1))
-            train_labels[current_label_index] = current_label
-            current_label_index += 1
-            rot2 = leaf.getRotatedData(180)
-            train_data = numpy.dstack((train_data, rot2))
-            train_labels[current_label_index] = current_label
-            current_label_index += 1
-            rot3 = leaf.getRotatedData(270)
-            train_data = numpy.dstack((train_data, rot3))
-            train_labels[current_label_index] = current_label
-            current_label_index += 1
-            leaf.close()
-            species = leaf.getSpecies()
-        current_label += 1
-            
-    train_data = numpy.transpose(train_data)
-    new_shape = train_data.shape + (1,)
-    train_data = train_data.reshape(new_shape)
+    # Create numpy array of training data and labels
+    training_data = numpy.ndarray(shape=(train_size, KAGGLE_IMAGE_SIZE, KAGGLE_IMAGE_SIZE, 1),
+                                  dtype=numpy.float32)
+    training_labels = numpy.zeros(shape=(train_size,), dtype=numpy.int64)
+    for i in xrange(train_size):
+      training_item = training_items[i]
+      current_label = training_item[0]
+      current_array = training_item[1]
+      training_labels[i] = current_label
+      training_data[i] = current_array
 
-    return train_data, train_labels
+    # Create numpy array of validation data and labels
+    validation_data = numpy.ndarray(
+      shape=(validation_size, KAGGLE_IMAGE_SIZE, KAGGLE_IMAGE_SIZE, 1), dtype=numpy.float32)
+    validation_labels = numpy.zeros(shape=(validation_size,), dtype=numpy.int64)
+    for i in xrange(validation_size):
+      validation_item = validation_items[i]
+      current_label = validation_item[0]
+      current_array = validation_item[1]
+      validation_labels[i] = current_label
+      validation_data[i] = current_array
+
+    return training_data, training_labels, validation_data, validation_labels
 
 
 def data_type():
@@ -375,19 +364,10 @@ def main(_):
     num_epochs = 1
   elif FLAGS.leaf_images:
     print('Kaggle Leaves')
-
     # Extract it into numpy arrays.
-    train_data, train_labels = extract_kaggle_data(IMAGE_DIR)
-
-    # Generate a validation set.
-    validation_data = train_data[:KAGGLE_VALIDATION_SIZE, ...]
-    validation_labels = train_labels[:KAGGLE_VALIDATION_SIZE]
-    train_data = train_data[KAGGLE_VALIDATION_SIZE:, ...]
-    train_labels = train_labels[KAGGLE_VALIDATION_SIZE:]
+    train_data, train_labels, validation_data, validation_labels = extract_kaggle_data(DATA_DIR)
     num_epochs = NUM_EPOCHS
-
     batch_size = KAGGLE_BATCH_SIZE
-
     image_size = KAGGLE_IMAGE_SIZE
   else:
     # Get the data.
@@ -511,9 +491,10 @@ def main(_):
       0.95,                # Decay rate.
       staircase=True)
   # Use simple momentum for the optimization.
-  optimizer = tf.train.MomentumOptimizer(learning_rate,
-                                         0.9).minimize(loss,
-                                                       global_step=batch)
+  #optimizer = tf.train.MomentumOptimizer(learning_rate,
+  #                                       0.9).minimize(loss,
+  #                                                     global_step=batch)
+  optimizer = tf.train.AdamOptimizer(learning_rate=0.005).minimize(loss);
 
   # Predictions for the current training minibatch.
   train_prediction = tf.nn.softmax(logits)
@@ -544,7 +525,7 @@ def main(_):
     return predictions
 
   # Create a local session to run the training.
-  print('Starting: ' + str(datetime.now()))
+  print_line('Starting...')
   start_time = time.time()
   with tf.Session() as sess:
     # Run all the initializers to prepare the trainable parameters.
@@ -581,6 +562,7 @@ def main(_):
         print('Validation error: %.1f%%' % error_rate(
             eval_in_batches(validation_data, sess), validation_labels))
         sys.stdout.flush()
+
     # Finally print the result!
     # test_error = error_rate(eval_in_batches(test_data, sess), test_labels)
     # print('Test error: %.1f%%' % test_error)
@@ -590,6 +572,7 @@ def main(_):
     #   assert test_error == 0.0, 'expected 0.0 test_error, got %.2f' % (
     #       test_error,)
 
+  print_line('FINISHED')
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
